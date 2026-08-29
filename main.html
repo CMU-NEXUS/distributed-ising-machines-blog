@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>When Ising Machines Become Distributed</title>
-  <meta name="description" content="A calibrated model explains when memory, synchronization, and communication limit digital Ising machines, and how to remove each cost.">
+  <title>How to Scale and Accelerate Distributed Digital Ising Machines</title>
+  <meta name="description" content="A calibrated performance model, roofline analysis, and systematic system-level acceleration approaches for distributed digital Ising machines.">
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -92,7 +92,7 @@
          ================================================================== */
       const C = {
         work:    '#2563eb',   // slot 1  blue    — this work
-        memory:  '#ea580c',   // slot 2  orange  — memory term
+        memory:  '#ea580c',   // slot 2  orange  — memory cost
         sync:    '#0d9488',   // slot 3  teal    — synchronization term
         comm:    '#eda100',   // slot 4  yellow  — communication term
         neutral: '#64748b',   // slate   — baseline or fixed cost
@@ -119,9 +119,9 @@
          ================================================================== */
       const MODEL_TERMS = [
         { id:'compute', label:'compute', symbol:'t_compute', color:C.neutral, action:'pipeline the spin-update datapath' },
-        { id:'memory', label:'memory', symbol:'t_mem', color:C.memory, action:'keep the working set on chip' },
-        { id:'sync', label:'synchronization', symbol:'t_sync', color:C.sync, action:'relax or remove global barriers' },
-        { id:'comm', label:'communication', symbol:'t_comm', color:C.comm, action:'hide transfer behind interior work' },
+        { id:'memory', label:'memory', symbol:'t_mem', color:C.memory, action:'keep the working set resident and compact' },
+        { id:'sync', label:'synchronization', symbol:'t_sync', color:C.sync, action:'use bounded-staleness sampling where quality permits' },
+        { id:'comm', label:'communication', symbol:'t_comm', color:C.comm, action:'pipeline transfer behind interior work' },
       ];
 
       const MODEL_ERROR = [
@@ -131,10 +131,10 @@
       ];
 
       const LEVERS = [
-        { technique:'Data placement', term:'Memory', metric:'speedup', min:1.2, max:4.2, color:C.memory },
-        { technique:'Multi-rate', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.75, max:3.16, color:C.sync },
-        { technique:'Bounded staleness', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.84, max:2.17, color:C.sync },
-        { technique:'Phase-offset streaming', term:'Communication', metric:'sweep speedup', min:1.25, max:2.01, color:C.comm },
+        { technique:'Roofline-guided data placement', term:'Memory', metric:'speedup', min:1.2, max:4.2, color:C.memory },
+        { technique:'Multi-rate bounded staleness', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.75, max:3.16, color:C.sync },
+        { technique:'Cross-partition bounded staleness', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.84, max:2.17, color:C.sync },
+        { technique:'Phase-offset pipelining', term:'Communication', metric:'sweep speedup', min:1.25, max:2.01, color:C.comm },
       ];
 
       const STREAMING = [
@@ -387,8 +387,8 @@
                 rows={[
                   ['Compute','t_compute','spin-update datapath','pipeline the datapath'],
                   ['Memory','t_mem','working-set residency and bandwidth','on-chip placement and compact storage'],
-                  ['Synchronization','t_sync','barrier count and latency','multi-rate or bounded-staleness schedule'],
-                  ['Communication','t_comm','link latency, bandwidth, and boundary size','phase-offset streaming'],
+                  ['Synchronization','t_sync','barrier count and latency','bounded-staleness sampling'],
+                  ['Communication','t_comm','link latency, bandwidth, and boundary size','phase-offset pipelining'],
                 ]} />}
             >
               <div className="bg-slate-900 rounded-xl shadow-2xl ring-1 ring-slate-900/5 overflow-hidden">
@@ -459,7 +459,7 @@
       const MemoryFigure = () => (
         <Reveal>
           <FigureCard
-            title="Precision, format, and residency decide the memory term"
+            title="Roofline analysis connects residency to memory performance"
             caption="The paper's Figure 4. The left panel measures solution quality across coupling and field widths. The right panel compares CSR and ELLPACK on an RTX 4070 as graph size grows."
             table={<DataTable
               head={['Design choice','Measured effect','Context']}
@@ -471,7 +471,7 @@
       );
 
       const SCHEDULE_PANELS = [
-        {id:'timeline',label:'Timelines',src:'figures/schedules.png',alt:'Serialized, multi-rate, bounded-staleness, and phase-offset scheduling timelines.'},
+        {id:'timeline',label:'Timelines',src:'figures/schedules.png',alt:'Serialized, multi-rate bounded-staleness, cross-partition bounded-staleness, and phase-offset scheduling timelines.'},
         {id:'results',label:'TTS results',src:'figures/tts-results.png',alt:'Time-to-solution speedup versus synchronization interval and boundary mixing cost.'},
       ];
 
@@ -481,15 +481,15 @@
         return (
           <Reveal>
             <FigureCard
-              title="Relaxing the barrier changes both rate and quality"
+              title="Two bounded-staleness mechanisms trade freshness for rate"
               controls={<Switcher label="Schedule figure" value={panel} onChange={setPanel}
                 options={[{id:'all',label:'All panels'},...SCHEDULE_PANELS.map(p => ({id:p.id,label:p.label}))]} />}
-              caption="Figures 5 and 6 from the paper. The timeline shows where each schedule places staleness. The measured curves show the resulting time-to-solution optimum."
+              caption="Figures 5 and 6 from the paper. Multi-rate bounded staleness applies within a partition; cross-partition bounded staleness applies across a partition cut. The measured curves show the resulting time-to-solution optimum."
               table={<DataTable
                 head={['Technique','Metric','Measured range']}
                 rows={[
-                  ['Multi-rate','TTS₉₉ reduction','1.75–3.16×'],
-                  ['Bounded staleness','TTS₉₉ reduction','1.84–2.17×'],
+                  ['Multi-rate bounded staleness','TTS₉₉ reduction','1.75–3.16×'],
+                  ['Cross-partition bounded staleness','TTS₉₉ reduction','1.84–2.17×'],
                 ]} />}
             >
               <div className={`grid gap-4 ${shown.length > 1 ? 'sm:grid-cols-2' : ''}`}>
@@ -506,12 +506,12 @@
         return (
           <Reveal>{(on) => (
             <FigureCard
-              title="Each design move removes a measured cost"
+              title="Measured effects of the analysis and acceleration approaches"
               controls={<Switcher label="Bottleneck" value={term} onChange={setTerm} options={[
                 {id:'all',label:'All'}, {id:'memory',label:'Memory'}, {id:'synchronization',label:'Synchronization'}, {id:'communication',label:'Communication'}]} />}
               caption="Ranges reported in the abstract, conclusion, and Table I. Data placement reports speedup, scheduling reports TTS₉₉ reduction, and streaming reports per-sweep speedup."
               table={<DataTable
-                head={['Technique','Removed term','Metric','Measured range']}
+                head={['Analysis or approach','Limiting factor','Metric','Measured range']}
                 rows={LEVERS.map(x => [x.technique,x.term,x.metric,x.min.toFixed(2)+'–'+x.max.toFixed(2)+'×'])}
                 note="The metrics differ by technique, so the bars compare reported multiplicative ranges, not one shared physical quantity." />}
             >

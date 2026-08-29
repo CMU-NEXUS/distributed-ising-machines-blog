@@ -2,6 +2,6 @@
 
 The experiments focus on sparse hardware graphs, including kings and Pegasus topologies. Irregular sparse graphs can use the same execution model after coloring, but dense all-to-all instances remain a different regime and scale poorly on distributed digital hardware.
 
-Bounded staleness is also not exact Gibbs sampling. It trades a measured amount of solution quality for throughput. Multi-rate scheduling preserves the eventual boundary transition but changes how often different spins are visited, which can slow mixing near the partition seam.
+Neither bounded-staleness mechanism is exact Gibbs sampling. Multi-rate bounded staleness lets interior p-bits observe aged boundary states, which can slow mixing near the partition seam. Cross-partition bounded staleness lets boundary p-bits observe aged states from an adjacent partition and can perturb the conditional distribution. Both trade a measured amount of solution quality for throughput.
 
 The platform comparison separates measured points from modeled extensions. The attached paper documents which values come from GPU profiling, FPGA implementation, fabricated silicon, or projection. Those distinctions matter when using the model for a new system.

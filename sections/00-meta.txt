@@ -4,9 +4,9 @@ tag: Computer Architecture
 tag: Ising Machines
 tag: Distributed Systems
 
-title: When Ising Machines
-title_accent: Become Distributed
-subtitle: A calibrated model identifies when memory, synchronization, and communication limit digital Ising machines, then removes each cost by design.
+title: How to Scale and Accelerate
+title_accent: Distributed Digital Ising Machines
+subtitle: A calibrated performance model and a systematic framework for system-level acceleration
 
 byline: Tong Wu et al. · CMU · Pitt · UCSB
 readtime: 7 min read

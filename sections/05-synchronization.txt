@@ -1,11 +1,13 @@
-## Then decide how exact each barrier must be
+## Two forms of bounded-staleness sampling
 
-Colored Gibbs sampling places a barrier between color steps so every update sees committed neighbors. That preserves the intended transition rule, but a device-wide barrier can cost more than the useful work at small problem sizes.
+Colored Gibbs sampling places a barrier between color steps so every update sees fresh committed neighbor states. At small problem sizes, synchronization can take more time than the useful work. We consider two bounded-staleness mechanisms that reduce synchronization frequency when the workload tolerates stale neighbor observations.
 
-The paper studies two ways to use the idle time. **Multi-rate scheduling** holds cut-facing spins until fresh boundary values arrive while interior spins continue updating. The boundary transition remains exact when it eventually runs, although mixing can slow near the seam. **Bounded staleness** updates the boundary from a halo with limited age. It increases throughput but perturbs the conditional distribution, so its quality cost must be measured.
+**Multi-rate bounded staleness** delays boundary-state propagation to interior p-bits. An interior p-bit can therefore observe a stale boundary-neighbor state on a boundary--interior interaction within its partition. **Cross-partition bounded staleness** delays state propagation across a partition boundary. A boundary p-bit can therefore observe a stale neighbor state from the adjacent partition.
 
-Both controls create an interior optimum. Relaxing synchronization first cuts sweep time faster than it lowers success probability. Past the optimum, quality loss dominates and time-to-solution rises again.
+Both mechanisms use the same bound, **F**, on the age of an observed neighbor state. **F = 1** is the fully synchronized baseline. The distinction is the edge set to which the bound applies: boundary--interior edges for multi-rate bounded staleness and partition-crossing edges for cross-partition bounded staleness.
+
+Both controls create an interior optimum. Reducing synchronization frequency first cuts sweep time faster than it lowers success probability. Past the optimum, quality loss dominates and time-to-solution rises again.
 
 [[FIG:scheduling]]
 
-The graph determines the safe range. Sparse partitions expose a small boundary relative to the interior, so the penalty remains local. Dense graphs spread stale information through many neighbors and require more frequent synchronization. The schedule is therefore a workload decision, not a universal switch.
+The graph determines the useful range. Sparse partitions expose a small boundary relative to the interior, so fewer p-bits observe stale neighbors. Dense graphs spread stale information through more interactions and require more frequent synchronization. The staleness bound is therefore a workload decision, not a universal switch.
