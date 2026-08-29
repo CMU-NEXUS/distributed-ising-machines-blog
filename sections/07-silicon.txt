@@ -1,9 +1,9 @@
-## The schedule survives contact with silicon
+## A fabricated four-chip system demonstrates phase-offset scheduling
 
-The streaming design is implemented on a chain of fabricated ASICs. Each chip stores a partition of the Pegasus graph in local SRAM and maps its cells onto an array of Ising processing units. Boundary rows are placed at the start of each half rotation, which gives the chip-to-chip transfer a long interior window.
+A chain of fabricated ASICs implements the streaming design. Local SRAM on each chip stores one Pegasus-graph partition, and an array of Ising processing units hosts its cells. The schedule starts each half rotation with boundary rows, giving chip-to-chip transfer a long interior window.
 
-Adding a chip adds processing elements in proportion to its spins. The number of cycles per sweep therefore stays flat while aggregate throughput rises. The measured multi-chip result also closes the loop on the model: local storage prevents a working-set spill, deterministic pipeline control lowers synchronization overhead, and the phase-offset schedule overlaps boundary exchange with interior computation.
+Across the tested chip counts, each added chip raises aggregate throughput without increasing the number of cycles per sweep. Each chip adds processing elements in proportion to its spins, so measured sweep cycles remain flat across those configurations. The measured multi-chip result is also consistent with each model term: local storage prevents a working-set spill, deterministic pipeline control lowers synchronization overhead, and the phase-offset schedule overlaps boundary exchange with interior computation.
 
 [[FIG:asic]]
 
-The cross-platform comparison makes the residency criterion visible. Splitting a problem can yield far more than ordinary parallel speedup when each smaller partition moves from off-chip memory into on-chip storage. That gain is a memory-tier change, not evidence of superlinear compute scaling.
+The cross-platform comparison shows how residency changes scaling. Partitioning can deliver far more than ordinary parallel speedup when each smaller working set moves from off-chip memory into on-chip storage. This gain comes from a memory-tier change, not from superlinear compute scaling.

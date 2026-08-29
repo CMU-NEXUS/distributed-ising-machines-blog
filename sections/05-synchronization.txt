@@ -1,13 +1,13 @@
 ## Two forms of bounded-staleness sampling
 
-Colored Gibbs sampling places a barrier between color steps so every update sees fresh committed neighbor states. At small problem sizes, synchronization can take more time than the useful work. We consider two bounded-staleness mechanisms that reduce synchronization frequency when the workload tolerates stale neighbor observations.
+Two bounded-staleness mechanisms reduce synchronization frequency when a workload tolerates stale neighbor observations. In colored Gibbs sampling, barriers between color steps ensure that every update sees fresh committed neighbor states. At small problem sizes, these barriers can take more time than the useful work.
 
-**Multi-rate bounded staleness** delays boundary-state propagation to interior p-bits. An interior p-bit can therefore observe a stale boundary-neighbor state on a boundary--interior interaction within its partition. **Cross-partition bounded staleness** delays state propagation across a partition boundary. A boundary p-bit can therefore observe a stale neighbor state from the adjacent partition.
+**Multi-rate bounded staleness** postpones boundary-state propagation to interior p-bits. Consequently, an interior p-bit can observe a stale boundary-neighbor state on a boundary--interior interaction within its partition. **Cross-partition bounded staleness** postpones state propagation across a partition boundary. Consequently, a boundary p-bit can observe a stale neighbor state from the adjacent partition.
 
-Both mechanisms use the same bound, **F**, on the age of an observed neighbor state. **F = 1** is the fully synchronized baseline. The distinction is the edge set to which the bound applies: boundary--interior edges for multi-rate bounded staleness and partition-crossing edges for cross-partition bounded staleness.
+Both mechanisms bound the age of an observed neighbor state with the same parameter, **F**. The fully synchronized baseline uses **F = 1**. The edge set distinguishes the mechanisms: multi-rate bounded staleness applies to boundary--interior edges, while cross-partition bounded staleness applies to partition-crossing edges.
 
-Both controls create an interior optimum. Reducing synchronization frequency first cuts sweep time faster than it lowers success probability. Past the optimum, quality loss dominates and time-to-solution rises again.
+Measurements show an interior optimum in time-to-solution for both mechanisms. At first, reducing synchronization frequency cuts sweep time faster than it lowers success probability. Beyond the optimum, quality loss dominates and time-to-solution rises again.
 
 [[FIG:scheduling]]
 
-The graph determines the useful range. Sparse partitions expose a small boundary relative to the interior, so fewer p-bits observe stale neighbors. Dense graphs spread stale information through more interactions and require more frequent synchronization. The staleness bound is therefore a workload decision, not a universal switch.
+The graph determines the useful staleness range. Because sparse partitions expose a small boundary relative to the interior, fewer p-bits observe stale neighbors. Dense graphs propagate stale information through more interactions and therefore require more frequent synchronization. Workload characteristics determine the staleness bound; no single setting applies universally.

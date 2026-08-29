@@ -1,6 +1,6 @@
 ## Read the paper and reproduce the model
 
-The attached preprint contains the derivations, experimental method, full plots, and related-work comparison. The companion repository contains the calibration scripts and performance model used in the paper.
+The attached preprint provides the derivations, experimental method, full plots, and related-work comparison. The companion repository provides the calibration scripts and performance model used in the paper.
 
 [[REF]] Tong Wu, Ziyad Alswaidan, Shreya Mukherjee, Ting-Yu Lee, Daniel Xu, Atharva Raut, Harry Tye, Abhinav K. Puthran, Kemal Selcuk, Navid A. Aadit, Ken Mai, Prashanth Mohan, Kerem Y. Camsari, Tathagata Srimani | Accelerating Distributed Digital Ising Machines | arXiv preprint, 2026 | main.pdf
 [[REF]] Wu et al. | Artifact: Calibration Scripts and Performance Model for Distributed Digital Ising Machines | GitHub, 2026 | https://github.com/WuEric011201/distributed-ising-machines

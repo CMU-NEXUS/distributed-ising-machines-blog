@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>How to Scale and Accelerate Distributed Digital Ising Machines</title>
-  <meta name="description" content="A calibrated performance model, roofline analysis, and systematic system-level acceleration approaches for distributed digital Ising machines.">
+  <meta name="description" content="A calibrated performance model and roofline analysis identify limiting factors and guide two systematic approaches to system-level acceleration for distributed digital Ising machines.">
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -358,7 +358,7 @@
         <Reveal>
           <FigureCard
             title="From an optimization problem to a distributed Ising machine"
-            caption="The paper's Figure 1. An optimization problem is mapped to an Ising graph, regularized for hardware, and executed on a GPU, FPGA, or ASIC. This work studies the hardware implementation and mapping stage."
+            caption="Figure 1 follows an optimization problem through Ising mapping, hardware regularization, and execution on a GPU, FPGA, or ASIC. This work analyzes the hardware implementation and mapping stage."
             table={<DataTable
               head={['Stage','Input','Output']}
               rows={[
@@ -381,7 +381,7 @@
               title="The four-term sweep model"
               controls={<Switcher label="Cost term" value={active} onChange={setActive}
                 options={[{id:'all',label:'All terms'}, ...MODEL_TERMS.map(t => ({id:t.id,label:t.label}))]} />}
-              caption="Equation 5 and Section III of the paper. A wave is bounded by the slower of compute and memory; synchronization and inter-device communication add coordination costs."
+              caption="The slower of compute and memory sets each wave's time; synchronization and inter-device communication add coordination costs. Source: Equation 5 and Section III."
               table={<DataTable
                 head={['Term','Symbol','What sets it','Design response']}
                 rows={[
@@ -425,7 +425,7 @@
           <FigureCard
             title="One calibration predicts held-out GPU configurations"
             legend={<LegendRow items={[{label:'B = 256 calibration',color:C.work},{label:'held-out block sizes',color:C.neutral}]} />}
-            caption="Mean absolute percentage error (MAPE) across the full size sweep from 100 to 2 million spins. Source: Section III-F and Figure 3."
+            caption="The bars report mean absolute percentage error (MAPE) across the full size sweep from 100 to 2 million spins. Section III-F and Figure 3 report these errors."
             table={<DataTable
               head={['GPU','Calibration MAPE','Held-out MAPE']}
               rows={MODEL_ERROR.map(r => [r.gpu,r.calibration.toFixed(1)+'%',r.heldout.toFixed(1)+'%'])}
@@ -460,7 +460,7 @@
         <Reveal>
           <FigureCard
             title="Roofline analysis connects residency to memory performance"
-            caption="The paper's Figure 4. The left panel measures solution quality across coupling and field widths. The right panel compares CSR and ELLPACK on an RTX 4070 as graph size grows."
+            caption="Figure 4 reports solution-quality measurements across coupling and field widths in the left panel and compares CSR with ELLPACK on an RTX 4070 as graph size grows in the right panel."
             table={<DataTable
               head={['Design choice','Measured effect','Context']}
               rows={MEMORY_RESULTS.map(x => [x.choice,x.effect,x.context])} />}
@@ -484,7 +484,7 @@
               title="Two bounded-staleness mechanisms trade freshness for rate"
               controls={<Switcher label="Schedule figure" value={panel} onChange={setPanel}
                 options={[{id:'all',label:'All panels'},...SCHEDULE_PANELS.map(p => ({id:p.id,label:p.label}))]} />}
-              caption="Figures 5 and 6 from the paper. Multi-rate bounded staleness applies within a partition; cross-partition bounded staleness applies across a partition cut. The measured curves show the resulting time-to-solution optimum."
+              caption="Figures 5 and 6 distinguish two mechanisms: multi-rate bounded staleness applies to boundary–interior interactions within a partition, while cross-partition bounded staleness applies to interactions that cross a partition cut. The measured curves show the resulting time-to-solution optimum."
               table={<DataTable
                 head={['Technique','Metric','Measured range']}
                 rows={[
@@ -509,11 +509,11 @@
               title="Measured effects of the analysis and acceleration approaches"
               controls={<Switcher label="Bottleneck" value={term} onChange={setTerm} options={[
                 {id:'all',label:'All'}, {id:'memory',label:'Memory'}, {id:'synchronization',label:'Synchronization'}, {id:'communication',label:'Communication'}]} />}
-              caption="Ranges reported in the abstract, conclusion, and Table I. Data placement reports speedup, scheduling reports TTS₉₉ reduction, and streaming reports per-sweep speedup."
+              caption="The abstract, conclusion, and Table I report these ranges. Data placement reports speedup, scheduling reports TTS₉₉ reduction, and streaming reports per-sweep speedup."
               table={<DataTable
                 head={['Analysis or approach','Limiting factor','Metric','Measured range']}
                 rows={LEVERS.map(x => [x.technique,x.term,x.metric,x.min.toFixed(2)+'–'+x.max.toFixed(2)+'×'])}
-                note="The metrics differ by technique, so the bars compare reported multiplicative ranges, not one shared physical quantity." />}
+                note="Because the techniques report different metrics, the bars compare multiplicative ranges rather than one shared physical quantity." />}
             >
               <div className="space-y-4">
                 {rows.map((x,i) => (
@@ -538,7 +538,7 @@
         <Reveal>{(on) => (
           <FigureCard
             title="Phase-offset streaming across three systems"
-            caption="Maximum streaming speedups reported for an H200 pair, a ZCU106 pair, and a four-board XEM8320 mesh. Source: abstract and Figure 8."
+            caption="The bars report maximum streaming speedups for an H200 pair, a ZCU106 pair, and a four-board XEM8320 mesh. The abstract and Figure 8 report these values."
             table={<DataTable head={['Platform','Configuration','Maximum speedup']}
               rows={STREAMING.map(x => [x.platform,x.platform.includes('XEM')?'4 devices':'2 devices',x.speedup.toFixed(2)+'×'])} />}
           >
@@ -558,10 +558,10 @@
       const ASICFigure = () => (
         <Reveal>{(on) => (
           <FigureCard
-            title="The model ends in measured silicon"
-            caption="Four fabricated 28 nm chips execute one coherent 27,648-spin Pegasus problem. Source: Sections V-E and VI, Figures 9 and 10."
+            title="Fabricated silicon demonstrates the streaming schedule"
+            caption="Four fabricated 28 nm chips execute one coherent 27,648-spin Pegasus problem. Sections V-E and VI describe the implementation, and Figures 9 and 10 show the measurements."
             table={<DataTable head={['Property','Measured value']} rows={ASIC.map(x => [x.label,x.value])}
-              note="The four-chip sweep time equals the single-chip sweep time because each added chip brings 54 processing elements and 6,912 spins." />}
+              note="The four-chip sweep time matches the single-chip sweep time because each added chip contributes 54 processing elements and 6,912 spins." />}
           >
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
               {ASIC.map((x,i) => (
@@ -867,8 +867,8 @@
 
         const { meta, blocks } = state;
         return (
-          <div className="min-h-screen bg-slate-50 font-sans text-slate-800 leading-relaxed">
-            <div className="max-w-3xl mx-auto bg-white min-h-screen shadow-lg border-x border-slate-100">
+          <div className="w-full min-w-0 min-h-screen bg-slate-50 font-sans text-slate-800 leading-relaxed">
+            <div className="w-full min-w-0 max-w-3xl mx-auto bg-white min-h-screen shadow-lg border-x border-slate-100">
 
               {/* Blog Header */}
               <header className="pt-16 pb-8 px-8 md:px-12">

@@ -1,13 +1,13 @@
 ## One equation locates the bottleneck
 
-The paper decomposes sweep time into four costs. Compute and memory compete inside each serialized wave. Synchronization adds a barrier cost within a device. Communication adds the time required to move boundary state between devices.
+A four-term model locates the limiting factor in each sweep. The slower of compute and memory sets the time for each serialized wave. Synchronization adds an intra-device barrier cost, while communication adds the time required to move boundary states between devices.
 
 [[FIG:sweep_model]]
 
-This decomposition applies to dynamically scheduled GPUs and statically scheduled FPGAs or ASICs. The constants differ, but the structure does not. GPU memory service depends on cache residency, achieved bandwidth, and enough resident threads to cover latency. A streaming platform instead exposes synthesis-time constants: processing elements, clock frequency, initiation interval, and pipeline drain.
+The same decomposition covers dynamically scheduled GPUs and statically scheduled FPGAs or ASICs. Its structure stays fixed, although the constants differ by platform. On GPUs, cache residency, achieved bandwidth, and enough resident threads to cover latency determine memory-service time. On streaming platforms, processing elements, clock frequency, initiation interval, and pipeline drain become synthesis-time constants.
 
-The model is calibrated once per GPU and then tested at block sizes that calibration never sees. It tracks the measured crossovers because its parameters correspond to physical mechanisms rather than a curve fitted separately at every operating point.
+A single calibration per GPU predicts performance at block sizes withheld from calibration. The model tracks the measured crossovers because each parameter represents a physical mechanism rather than a curve fitted separately at every operating point.
 
 [[FIG:model_accuracy]]
 
-That distinction matters for design. A measurement says what happened at one point. A calibrated term says what will change when the problem grows, the graph degree changes, or another device is added.
+Physical terms make the model useful for design. A measurement describes one operating point, whereas a calibrated term predicts what changes when the problem grows, the graph degree changes, or another device is added.

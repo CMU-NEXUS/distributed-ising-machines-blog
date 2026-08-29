@@ -1,11 +1,11 @@
-## At scale, hide communication instead of skipping it
+## Phase-offset pipelining overlaps boundary exchange with interior computation
 
-Relaxed barriers help most when the fixed refresh cost occupies a large share of a short sweep. As the problem grows, interior work amortizes that fixed cost. Transfer time remains, so the scalable response is to move it off the critical path.
+Phase-offset pipelining moves the remaining transfer off the critical path when interior work can cover it. Bounded-staleness sampling helps most when a fixed refresh cost occupies a large share of a short sweep. As the problem grows, interior work amortizes that fixed cost, but transfer time remains.
 
-The phase-offset schedule changes the order of color and wave slots. A device updates its boundary early, dispatches the packet immediately, then computes interior spins while the packet travels. Its neighbor consumes that boundary late. Equal phase spacing maximizes the shortest producer-to-consumer gap.
+Phase-offset scheduling reorders color and wave slots to overlap boundary transfer with interior work. A device updates its boundary early, dispatches the packet immediately, and then computes interior spins while the packet travels. Its neighbor consumes the boundary late. Equal phase spacing makes the shortest producer-to-consumer gap as large as possible.
 
-A link is **latency-transparent** when the complete transfer fits inside this gap after packet staging. Under that condition, communication disappears from sweep time even though bytes still cross the link. More bandwidth alone cannot guarantee this result. The device must also contain enough interior work to cover link latency.
+A link becomes **latency-transparent** when the complete transfer fits within this gap after packet staging. Under that condition, bytes still cross the link, but communication no longer contributes to sweep time. Bandwidth alone cannot guarantee latency transparency; the device must also contain enough interior work to cover link latency.
 
 [[FIG:streaming]]
 
-Local sparse graphs are favorable because boundary volume grows more slowly than interior work. Dense all-to-all graphs are not. Every spin becomes a boundary spin, the hiding window shrinks with device count, and communication prevents scalable throughput.
+Local sparse graphs favor this schedule because boundary volume grows more slowly than interior work. Dense all-to-all graphs do not: every spin becomes a boundary spin, the hiding window shrinks with device count, and communication prevents scalable throughput.

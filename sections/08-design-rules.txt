@@ -1,13 +1,13 @@
-## What to build
+## Five checks guide system design
 
-The model turns the measurements into a short set of design checks.
+The model translates the measurements into five design checks.
 
 [[FIG:levers]]
 
-1. **Test residency first.** Compute the coupling footprint from graph size, degree, index width, and coefficient width. Compare it with the usable on-chip tier.
-2. **Treat synchronization as a quality parameter.** Sweep the interval and report time-to-solution, not update rate alone.
-3. **Size the device and link together.** A packet must fit behind interior work after staging. Link bandwidth and latency both enter that test.
-4. **Match partition geometry to the graph.** A compact mesh preserves interior locality longer than row slabs as the device count rises.
-5. **Compare schedules at equal solution quality.** Faster sweeps do not help if success probability falls faster.
+1. **Test residency first.** Calculate the coupling footprint from graph size, degree, index width, and coefficient width, and compare it with the usable on-chip tier.
+2. **Treat synchronization as a quality parameter.** Sweep the synchronization interval and report time-to-solution rather than update rate alone.
+3. **Size the device and link together.** After staging, the complete packet transfer must fit within the interior-computation window. Both link bandwidth and latency enter this test.
+4. **Match partition geometry to the graph.** As device count rises, a compact mesh preserves interior locality longer than row slabs.
+5. **Compare schedules at equal solution quality.** Faster sweeps do not help when success probability falls faster.
 
-> The ideal distributed Ising accelerator is not simply the device with the fastest spin update. It is the design that keeps data resident and makes coordination invisible at the target graph size.
+> The best distributed Ising accelerator is not simply the device with the fastest spin update. It is the design that keeps data resident and makes coordination invisible at the target graph size.

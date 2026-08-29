@@ -1,11 +1,11 @@
 ## Scaling changes the problem
 
-An Ising machine represents a problem as binary spins connected by weighted couplings. A low-energy spin configuration encodes a good solution. Each update reads neighboring spins and couplings, accumulates a local field, then samples a new state. A sweep attempts one update per spin.
+An Ising machine encodes a problem as binary spins joined by weighted couplings; a low-energy spin configuration represents a good solution. To update one spin, the machine reads its neighbors and couplings, accumulates a local field, and samples a new state. One sweep attempts to update every spin once.
 
-The update itself is small. Scale makes it difficult. Problems of practical interest outgrow the on-chip storage of one accelerator, so the coupling graph must be partitioned across devices. That introduces two boundaries at once: a memory boundary inside each device and a communication boundary between devices.
+Scale, not the individual update, creates the system challenge. Practical problems outgrow one accelerator's on-chip storage, so the system must partition the coupling graph across devices. This partitioning creates two boundaries: a memory boundary within each device and a communication boundary between devices.
 
 [[FIG:workflow]]
 
-Sparse regular graphs expose useful parallelism through graph coloring. Spins in one color do not share an edge, so they can update together. Yet each color step must still observe committed neighbor values. On a GPU that creates global barriers. Across devices it creates boundary exchange. A platform can therefore be memory-bound at one size, synchronization-bound at another, then communication-bound after partitioning.
+The same platform can be memory-bound at one size, synchronization-bound at another, and communication-bound after partitioning. Sparse regular graphs expose parallelism through graph coloring: spins within one color share no edges and can update together. Each color step must still observe committed neighbor values, so GPUs execute global barriers and distributed systems exchange boundary states.
 
-> Asking which device is fastest misses the architectural question. The useful question is **which term limits this workload at this size and mapping?**
+> Asking which device is fastest obscures the architectural question. Instead, ask **which term limits this workload at this size and mapping?**

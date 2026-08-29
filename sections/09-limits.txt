@@ -1,7 +1,7 @@
 ## What the result does not claim
 
-The experiments focus on sparse hardware graphs, including kings and Pegasus topologies. Irregular sparse graphs can use the same execution model after coloring, but dense all-to-all instances remain a different regime and scale poorly on distributed digital hardware.
+Our experiments focus on sparse hardware graphs, including kings and Pegasus topologies. After coloring, irregular sparse graphs can use the same execution model. Dense all-to-all instances, however, occupy a different regime and scale poorly on distributed digital hardware.
 
-Neither bounded-staleness mechanism is exact Gibbs sampling. Multi-rate bounded staleness lets interior p-bits observe aged boundary states, which can slow mixing near the partition seam. Cross-partition bounded staleness lets boundary p-bits observe aged states from an adjacent partition and can perturb the conditional distribution. Both trade a measured amount of solution quality for throughput.
+Neither bounded-staleness mechanism preserves exact Gibbs sampling. Under multi-rate bounded staleness, interior p-bits can observe stale boundary states, which can slow mixing near the partition seam. Under cross-partition bounded staleness, boundary p-bits can observe stale states from an adjacent partition, which can perturb the conditional distribution. Both mechanisms trade a measured amount of solution quality for throughput.
 
-The platform comparison separates measured points from modeled extensions. The attached paper documents which values come from GPU profiling, FPGA implementation, fabricated silicon, or projection. Those distinctions matter when using the model for a new system.
+The platform comparison distinguishes measurements from modeled extensions. The attached paper identifies the values that come from GPU profiling, FPGA implementation, fabricated silicon, or projection. These distinctions matter when applying the model to a new system.
