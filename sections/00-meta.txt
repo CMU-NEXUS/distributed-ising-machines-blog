@@ -1,0 +1,16 @@
+# Page header.
+
+tag: Computer Architecture
+tag: Ising Machines
+tag: Distributed Systems
+
+title: When Ising Machines
+title_accent: Become Distributed
+subtitle: A calibrated model identifies when memory, synchronization, and communication limit digital Ising machines, then removes each cost by design.
+
+byline: Tong Wu et al. · CMU · Pitt · UCSB
+readtime: 7 min read
+date: Aug 27, 2026
+
+link: Read the paper | main.pdf | FileText
+link: Code & model | https://github.com/WuEric011201/distributed-ising-machines | Code

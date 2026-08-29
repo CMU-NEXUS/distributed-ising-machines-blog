@@ -1,0 +1,11 @@
+# Section order. One filename per line.
+01-tldr.txt
+02-scaling-problem.txt
+03-model.txt
+04-memory.txt
+05-synchronization.txt
+06-communication.txt
+07-silicon.txt
+08-design-rules.txt
+09-limits.txt
+10-paper.txt

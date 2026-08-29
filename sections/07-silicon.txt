@@ -1,0 +1,9 @@
+## The schedule survives contact with silicon
+
+The streaming design is implemented on a chain of fabricated ASICs. Each chip stores a partition of the Pegasus graph in local SRAM and maps its cells onto an array of Ising processing units. Boundary rows are placed at the start of each half rotation, which gives the chip-to-chip transfer a long interior window.
+
+Adding a chip adds processing elements in proportion to its spins. The number of cycles per sweep therefore stays flat while aggregate throughput rises. The measured multi-chip result also closes the loop on the model: the memory term is removed by local storage, the barrier term is reduced to deterministic pipeline control, and the communication term is hidden by schedule.
+
+[[FIG:asic]]
+
+The cross-platform comparison makes the residency criterion visible. Splitting a problem can yield far more than ordinary parallel speedup when each smaller partition moves from off-chip memory into on-chip storage. That gain is a memory-tier change, not evidence of superlinear compute scaling.

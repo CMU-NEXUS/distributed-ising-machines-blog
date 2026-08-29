@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>When Ising Machines Become Distributed</title>
+  <meta name="description" content="A calibrated model explains when memory, synchronization, and communication limit digital Ising machines, and how to remove each cost.">
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- React & ReactDOM (Stable 18.2.0) -->
+  <script src="https://unpkg.com/react@18.2.0/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.development.js" crossorigin></script>
+
+  <!-- Prop-Types (CRITICAL: Required dependency for Recharts UMD build) -->
+  <script src="https://unpkg.com/prop-types/prop-types.min.js"></script>
+
+  <!-- Babel for JSX -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Recharts (Stable 2.12.7) -->
+  <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+
+  <style>
+    body { font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif; }
+    code, .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+    /* Loading spinner style */
+    .loader {
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #3498db;
+      border-radius: 50%;
+      width: 30px;
+      height: 30px;
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+    /* scroll-reveal: figures animate in as they enter the viewport */
+    .reveal { opacity: 0; transform: translateY(14px); transition: opacity .6s ease, transform .6s cubic-bezier(.22,.61,.36,1); }
+    .reveal.in { opacity: 1; transform: none; }
+    @media (prefers-reduced-motion: reduce) {
+      .reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
+      .pop, .draw, .grow, .pulse { animation: none !important; }
+    }
+
+    /* figure micro-animations */
+    @keyframes popIn { 0% { opacity:0; transform: scale(.4) } 70% { opacity:1; transform: scale(1.18) } 100% { opacity:1; transform: scale(1) } }
+    .pop { animation: popIn .42s cubic-bezier(.34,1.56,.64,1) both; }
+    @keyframes growW { from { transform: scaleX(0) } to { transform: scaleX(1) } }
+    .grow { transform-origin: left center; animation: growW .9s cubic-bezier(.22,.61,.36,1) both; }
+    @keyframes pulseRing { 0%,100% { opacity:.25 } 50% { opacity:.9 } }
+    .pulse { animation: pulseRing 2.4s ease-in-out infinite; }
+    @keyframes dashFlow { to { stroke-dashoffset: -24 } }
+    .flow { stroke-dasharray: 4 8; animation: dashFlow 1.4s linear infinite; }
+
+    /* recharts polish */
+    .recharts-surface { overflow: visible; }
+    .recharts-cartesian-axis-tick text { font-size: 11px; }
+    ::selection { background: #dbeafe; }
+  </style>
+</head>
+<body class="bg-slate-50">
+
+  <div id="root" class="min-h-screen flex items-center justify-center">
+    <div class="text-slate-400 flex flex-col items-center gap-4">
+      <div class="loader"></div>
+      <p>Loading Interactive Article...</p>
+    </div>
+  </div>
+
+  <script type="text/babel">
+    try {
+      // 1. Safety Check: Ensure libraries loaded
+      if (!window.React || !window.ReactDOM || !window.Recharts) {
+        throw new Error("External libraries (React or Recharts) failed to load. Please check your internet connection.");
+      }
+
+      const { useState, useEffect, useRef, useMemo, useCallback } = React;
+      const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip: RechartsTooltip,
+              ResponsiveContainer, BarChart, Bar, Legend, Area, AreaChart, Cell,
+              LabelList, ReferenceLine } = Recharts;
+
+      /* ==================================================================
+         DESIGN TOKENS — series colors are validated for CVD separation and
+         contrast on the white card surface. Color follows the ENTITY, so a
+         tool keeps its hue in every chart on the page.
+         ================================================================== */
+      const C = {
+        work:    '#2563eb',   // slot 1  blue    — this work
+        memory:  '#ea580c',   // slot 2  orange  — memory term
+        sync:    '#0d9488',   // slot 3  teal    — synchronization term
+        comm:    '#eda100',   // slot 4  yellow  — communication term
+        neutral: '#64748b',   // slate   — baseline or fixed cost
+        grid:    '#f1f5f9',
+        axis:    '#94a3b8',
+        tick:    '#64748b',
+        ink:     '#334155',
+      };
+      /* Respect the reader's motion preference; ?static=1 also freezes everything,
+         which is what screenshots and print want. */
+      const STATIC = (typeof window !== 'undefined') && (
+        /[?&]static=1/.test(window.location.search) ||
+        (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches));
+      const ANIM = !STATIC;
+
+      const TOOLTIP_STYLE = {
+        borderRadius: '8px', border: 'none', fontSize: '12px',
+        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 10px 24px -8px rgb(0 0 0 / .18)'
+      };
+
+      /* ==================================================================
+         DATA — every number below is from the attached arXiv paper.
+         Edit numbers here; edit prose in sections/*.txt
+         ================================================================== */
+      const MODEL_TERMS = [
+        { id:'compute', label:'compute', symbol:'t_compute', color:C.neutral, action:'pipeline the spin-update datapath' },
+        { id:'memory', label:'memory', symbol:'t_mem', color:C.memory, action:'keep the working set on chip' },
+        { id:'sync', label:'synchronization', symbol:'t_sync', color:C.sync, action:'relax or remove global barriers' },
+        { id:'comm', label:'communication', symbol:'t_comm', color:C.comm, action:'hide transfer behind interior work' },
+      ];
+
+      const MODEL_ERROR = [
+        { gpu:'RTX 4070', calibration:5.2, heldout:7.2 },
+        { gpu:'RTX 6000', calibration:2.6, heldout:4.1 },
+        { gpu:'H200', calibration:3.3, heldout:3.8 },
+      ];
+
+      const LEVERS = [
+        { technique:'Data placement', term:'Memory', metric:'speedup', min:1.2, max:4.2, color:C.memory },
+        { technique:'Multi-rate', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.75, max:3.16, color:C.sync },
+        { technique:'Bounded staleness', term:'Synchronization', metric:'TTS₉₉ reduction', min:1.84, max:2.17, color:C.sync },
+        { technique:'Phase-offset streaming', term:'Communication', metric:'sweep speedup', min:1.25, max:2.01, color:C.comm },
+      ];
+
+      const STREAMING = [
+        { platform:'H200 pair', speedup:1.25 },
+        { platform:'ZCU106 pair', speedup:1.74 },
+        { platform:'XEM8320 2×2 mesh', speedup:2.01 },
+      ];
+
+      const ASIC = [
+        { label:'Process', value:'28 nm' },
+        { label:'Chips', value:'4' },
+        { label:'Spins', value:'27,648' },
+        { label:'Sweep time', value:'0.985 µs' },
+        { label:'Throughput', value:'28.1 Gflips/s' },
+        { label:'Energy', value:'4.81 pJ/update' },
+      ];
+
+      const MEMORY_RESULTS = [
+        { choice:'Optimal precision', effect:'1.2–4.2× speedup', context:'identical energy target' },
+        { choice:'Optimal precision', effect:'3.4× lower TTS', context:'geometric mean' },
+        { choice:'Stay inside L2', effect:'2.9× bandwidth', context:'RTX 4070 spill penalty' },
+        { choice:'Evict-first loads', effect:'1.44× speedup', context:'beyond L2' },
+        { choice:'ELLPACK layout', effect:'up to 1.6×', context:'regular bandwidth-bound graphs' },
+      ];
+
+      /* ==================================================================
+         PRIMITIVES
+         ================================================================== */
+      const Icon = ({ name, className, style }) => {
+        const paths = {
+          ArrowRight: "M5 12h14M12 5l7 7-7 7",
+          ArrowDown: "M12 5v14M5 12l7 7 7-7",
+          Terminal: "M4 17l6-6-6-6M12 19h8",
+          Layout: "M19 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2zM9 17H5v-4h4v4zm0-6H5V7h4v4zm10 6h-8V7h8v10z",
+          Layers: "M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5",
+          Cpu: "M12 2v2M12 20v2M2 12h2M20 12h2M5 5h14v14H5zM8.5 8.5h7v7h-7z",
+          Clock: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 6v6l4 2",
+          Activity: "M22 12h-4l-3 9L9 3l-3 9H2",
+          Zap: "M13 2L3 14h9l-1 8 10-12h-9l1-8z",
+          CheckCircle: "M22 11.08V12a10 10 0 1 1-5.93-9.14M22 4L12 14.01l-3-3",
+          XCircle: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM15 9l-6 6M9 9l6 6",
+          Star: "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-5.82 3.25L7.38 14.14 2 9.27l6.91-1.01L12 2z",
+          Code: "M9 18l-6-6 6-6M15 6l6 6-6 6M13 4v16",
+          FileText: "M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M10 11h6M10 15h6M10 19h4",
+          Scissors: "M6 3v12M18 9V3M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM18 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM8.1 16.9L18 9M15.9 16.9L6 9",
+          Split: "M4 4h6l4 8 4 8h2M4 20h6",
+          Target: "M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10zM12 11a1 1 0 1 0 0 2 1 1 0 0 0 0-2z",
+          Table: "M3 3h18v18H3zM3 9h18M3 15h18M9 3v18",
+          Box: "M21 8l-9-5-9 5v8l9 5 9-5zM3 8l9 5 9-5M12 13v8",
+          ChevronDown: "M6 9l6 6 6-6",
+        };
+        return (
+          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+               className={className} style={style} aria-hidden="true">
+            {paths[name] ? <path d={paths[name]} /> : <circle cx="12" cy="12" r="10"/>}
+          </svg>
+        );
+      };
+
+      /* Reveal — plays a figure's animation the first time it scrolls into view. */
+      const Reveal = ({ children, className = "" }) => {
+        const ref = useRef(null);
+        const [seen, setSeen] = useState(false);
+        useEffect(() => {
+          const el = ref.current;
+          if (!el) return;
+          if (STATIC || !('IntersectionObserver' in window)) { setSeen(true); return; }
+          const io = new IntersectionObserver((entries) => {
+            entries.forEach(e => { if (e.isIntersecting) { setSeen(true); io.disconnect(); } });
+          }, { rootMargin: '0px 0px -12% 0px', threshold: 0.15 });
+          io.observe(el);
+          return () => io.disconnect();
+        }, []);
+        return (
+          <div ref={ref} className={`reveal ${seen ? 'in' : ''} ${className}`}>
+            {typeof children === 'function' ? children(seen) : children}
+          </div>
+        );
+      };
+
+      /* CountUp — eases a number up once its figure is in view. */
+      const CountUp = ({ to, decimals = 0, suffix = '', prefix = '', run = true, dur = 1100 }) => {
+        const [v, setV] = useState(0);
+        useEffect(() => {
+          if (!run) { setV(0); return; }
+          if (STATIC || (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches)) { setV(to); return; }
+          let raf, t0 = null;
+          const tick = (t) => {
+            if (t0 === null) t0 = t;
+            const p = Math.min(1, (t - t0) / dur);
+            setV(to * (1 - Math.pow(1 - p, 3)));
+            if (p < 1) raf = requestAnimationFrame(tick);
+          };
+          raf = requestAnimationFrame(tick);
+          return () => cancelAnimationFrame(raf);
+        }, [to, run, dur]);
+        return <span>{prefix}{v.toFixed(decimals)}{suffix}</span>;
+      };
+
+      const SectionHeader = ({ title }) => (
+        <div className="flex items-center gap-3 mb-6 mt-12">
+          <h2 className="text-2xl font-bold text-slate-900 tracking-tight">{title}</h2>
+        </div>
+      );
+
+      /* Pill switcher — one control row, above the plot it scopes. */
+      const Switcher = ({ options, value, onChange, label }) => (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label={label}>
+          {options.map(o => (
+            <button key={o.id} type="button" onClick={() => onChange(o.id)}
+              aria-pressed={value === o.id}
+              className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wide border transition-colors ${
+                value === o.id
+                  ? 'bg-blue-600 text-white border-blue-600'
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-blue-300 hover:text-blue-600'}`}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      );
+
+      const LegendRow = ({ items }) => (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs font-medium text-slate-600">
+          {items.map(i => (
+            <span key={i.label} className="flex items-center gap-1.5">
+              <span className="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: i.color }}></span>
+              {i.label}
+            </span>
+          ))}
+        </div>
+      );
+
+      /* Every figure ships a table view — values are never color- or hover-only. */
+      const DataTable = ({ head, rows, foot, note }) => (
+        <div className="mt-4 -mx-2 overflow-x-auto" tabIndex="0" role="region" aria-label="Data table">
+          <table className="w-full text-xs" style={{ fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr className="text-slate-500 border-b border-slate-200">
+                {head.map((h, i) => (
+                  <th key={i} className={`py-2 px-2 font-semibold whitespace-nowrap ${i ? 'text-right' : 'text-left'}`}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={i} className="border-b border-slate-100 last:border-0">
+                  {r.map((c, j) => (
+                    <td key={j} className={`py-1.5 px-2 whitespace-nowrap ${j ? 'text-right text-slate-600' : 'text-left font-medium text-slate-800 mono'}`}>{c}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+            {foot && (
+              <tfoot>
+                <tr className="border-t-2 border-slate-200 font-semibold text-slate-800">
+                  {foot.map((c, j) => (
+                    <td key={j} className={`py-2 px-2 whitespace-nowrap ${j ? 'text-right' : 'text-left'}`}>{c}</td>
+                  ))}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+          {note && <p className="text-[11px] text-slate-400 mt-2 px-2">{note}</p>}
+        </div>
+      );
+
+      /* The white figure card every chart sits in. */
+      const SHOW_TABLES = (typeof window !== 'undefined') && /[?&]tables=1/.test(window.location.search);
+
+      const FigureCard = ({ title, controls, legend, children, caption, table, id }) => {
+        const [showTable, setShowTable] = useState(SHOW_TABLES);
+        return (
+          <figure id={id} className="my-10 p-5 sm:p-6 bg-white border border-slate-200 rounded-xl shadow-sm">
+            <div className="flex flex-wrap justify-between items-start gap-3 mb-4">
+              <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wide">{title}</h3>
+              {controls}
+            </div>
+            {legend && <div className="mb-4">{legend}</div>}
+            {children}
+            <figcaption className="flex flex-wrap items-start justify-between gap-3 mt-3">
+              <p className="text-xs text-slate-400 flex-1 min-w-[12rem] leading-relaxed">{caption}</p>
+              {table && (
+                <button type="button" onClick={() => setShowTable(s => !s)}
+                  className="shrink-0 inline-flex items-center gap-1.5 text-xs font-semibold text-slate-500 hover:text-blue-600 transition-colors">
+                  <Icon name="Table" className="w-3.5 h-3.5" />
+                  {showTable ? 'Hide data' : 'Show data'}
+                </button>
+              )}
+            </figcaption>
+            {showTable && table}
+          </figure>
+        );
+      };
+
+      const fmtCycles = (v) => {
+        if (v === null || v === undefined) return 'n/s';
+        if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 1 : 2) + 'M';
+        if (v >= 1e4) return (v / 1e3).toFixed(1) + 'k';
+        return String(v);
+      };
+      const fmtSci = (v) => {
+        if (v === null || v === undefined) return '—';
+        const e = Math.floor(Math.log10(v));
+        return (v / Math.pow(10, e)).toFixed(1) + '×10' + String(e).replace(/\d/g, d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[+d]);
+      };
+
+      /* Source figures and interactive views. */
+      const SourceImage = ({ src, alt, className = '' }) => (
+        <div className={`rounded-lg border border-slate-200 bg-white overflow-hidden ${className}`}>
+          <img src={src} alt={alt} className="w-full h-auto block" loading="lazy" />
+        </div>
+      );
+
+      const ChartFrame = ({ height, on, children }) => (
+        on ? <div style={{ height, width:'100%' }}><ResponsiveContainer width="100%" height="100%">{children}</ResponsiveContainer></div>
+           : <div style={{ height, width:'100%' }} aria-hidden="true"></div>
+      );
+
+      const WorkflowFigure = () => (
+        <Reveal>
+          <FigureCard
+            title="From an optimization problem to a distributed Ising machine"
+            caption="The paper's Figure 1. An optimization problem is mapped to an Ising graph, regularized for hardware, and executed on a GPU, FPGA, or ASIC. This work studies the hardware implementation and mapping stage."
+            table={<DataTable
+              head={['Stage','Input','Output']}
+              rows={[
+                ['Ising formulation','combinatorial problem','irregular spin graph'],
+                ['Graph sparsification','irregular graph','regular sparse graph'],
+                ['Hardware mapping','sparse graph','GPU, FPGA, or ASIC execution'],
+              ]} />}
+          >
+            <SourceImage src="figures/workflow.png" alt="Workflow from a MaxCut problem through Ising formulation and graph sparsification to GPU, FPGA, and ASIC implementations." />
+          </FigureCard>
+        </Reveal>
+      );
+
+      const SweepModel = () => {
+        const [active, setActive] = useState('all');
+        const shown = active === 'all' ? MODEL_TERMS : MODEL_TERMS.filter(t => t.id === active);
+        return (
+          <Reveal>{(on) => (
+            <FigureCard
+              title="The four-term sweep model"
+              controls={<Switcher label="Cost term" value={active} onChange={setActive}
+                options={[{id:'all',label:'All terms'}, ...MODEL_TERMS.map(t => ({id:t.id,label:t.label}))]} />}
+              caption="Equation 5 and Section III of the paper. A wave is bounded by the slower of compute and memory; synchronization and inter-device communication add coordination costs."
+              table={<DataTable
+                head={['Term','Symbol','What sets it','Design response']}
+                rows={[
+                  ['Compute','t_compute','spin-update datapath','pipeline the datapath'],
+                  ['Memory','t_mem','working-set residency and bandwidth','on-chip placement and compact storage'],
+                  ['Synchronization','t_sync','barrier count and latency','multi-rate or bounded-staleness schedule'],
+                  ['Communication','t_comm','link latency, bandwidth, and boundary size','phase-offset streaming'],
+                ]} />}
+            >
+              <div className="bg-slate-900 rounded-xl shadow-2xl ring-1 ring-slate-900/5 overflow-hidden">
+                <div className="bg-slate-800/50 px-5 py-3 border-b border-slate-700/50 flex justify-between items-center">
+                  <span className="text-xs font-bold text-slate-300 uppercase tracking-wide">One Ising sweep</span>
+                  <div className="flex gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-red-500/50"></span><span className="w-2.5 h-2.5 rounded-full bg-yellow-500/50"></span><span className="w-2.5 h-2.5 rounded-full bg-green-500/50"></span></div>
+                </div>
+                <div className="p-5 sm:p-7">
+                  <p className="mono text-center text-sm sm:text-base text-slate-200 mb-6 overflow-x-auto whitespace-nowrap">
+                    t<sub>sweep</sub> = χ · W · max(t<sub>compute</sub>, t<sub>mem</sub>) + γ · t<sub>sync</sub> + t<sub>comm</sub>
+                  </p>
+                  <div className={`grid gap-3 ${shown.length > 1 ? 'sm:grid-cols-2' : 'max-w-sm mx-auto'}`}>
+                    {shown.map((t, i) => (
+                      <button key={t.id} type="button" onClick={() => setActive(t.id)}
+                        className={`text-left rounded-lg border border-slate-700 bg-slate-800/70 p-4 ${on ? 'pop' : 'opacity-0'}`}
+                        style={{animationDelay:(i*100)+'ms'}}>
+                        <div className="flex items-center gap-3">
+                          <span className="w-3 h-3 rounded-sm shrink-0" style={{background:t.color}}></span>
+                          <span className="mono text-sm font-bold text-slate-100">{t.symbol}</span>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-2">{t.action}</p>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </FigureCard>
+          )}</Reveal>
+        );
+      };
+
+      const ModelAccuracy = () => (
+        <Reveal>{(on) => (
+          <FigureCard
+            title="One calibration predicts held-out GPU configurations"
+            legend={<LegendRow items={[{label:'B = 256 calibration',color:C.work},{label:'held-out block sizes',color:C.neutral}]} />}
+            caption="Mean absolute percentage error (MAPE) across the full size sweep from 100 to 2 million spins. Source: Section III-F and Figure 3."
+            table={<DataTable
+              head={['GPU','Calibration MAPE','Held-out MAPE']}
+              rows={MODEL_ERROR.map(r => [r.gpu,r.calibration.toFixed(1)+'%',r.heldout.toFixed(1)+'%'])}
+              foot={['All 18 GPU/block configurations','4.8% mean','B = 64–1024']} />}
+          >
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              {MODEL_ERROR.map((r,i) => (
+                <div key={r.gpu} className="text-center p-3 rounded-lg bg-blue-50 border border-blue-100">
+                  <p className="text-2xl font-extrabold text-blue-700"><CountUp to={r.heldout} decimals={1} suffix="%" run={on} dur={800+i*130} /></p>
+                  <p className="text-[10px] font-semibold text-slate-500 mt-1">{r.gpu}<br/>held out</p>
+                </div>
+              ))}
+            </div>
+            <ChartFrame height={220} on={on}>
+              <BarChart data={MODEL_ERROR} margin={{top:8,right:12,left:0,bottom:8}} barGap={3} barCategoryGap="30%">
+                <CartesianGrid stroke={C.grid} vertical={false} />
+                <XAxis dataKey="gpu" tick={{fontSize:11,fill:C.tick}} tickLine={false} axisLine={{stroke:'#cbd5e1'}} />
+                <YAxis domain={[0,8]} ticks={[0,2,4,6,8]} unit="%" tick={{fontSize:11,fill:C.tick}} tickLine={false} axisLine={false} />
+                <RechartsTooltip contentStyle={TOOLTIP_STYLE} formatter={(v,n) => [v.toFixed(1)+'%',n]} />
+                <Bar dataKey="calibration" name="Calibration" fill={C.work} radius={[3,3,0,0]} barSize={18} isAnimationActive={ANIM} />
+                <Bar dataKey="heldout" name="Held out" fill={C.neutral} radius={[3,3,0,0]} barSize={18} isAnimationActive={ANIM} animationBegin={140} />
+              </BarChart>
+            </ChartFrame>
+            <div className="mt-5 pt-5 border-t border-slate-100">
+              <SourceImage src="figures/model-validation.png" alt="The paper's measured and predicted GPU sweep times across problem sizes and block sizes." />
+            </div>
+          </FigureCard>
+        )}</Reveal>
+      );
+
+      const MemoryFigure = () => (
+        <Reveal>
+          <FigureCard
+            title="Precision, format, and residency decide the memory term"
+            caption="The paper's Figure 4. The left panel measures solution quality across coupling and field widths. The right panel compares CSR and ELLPACK on an RTX 4070 as graph size grows."
+            table={<DataTable
+              head={['Design choice','Measured effect','Context']}
+              rows={MEMORY_RESULTS.map(x => [x.choice,x.effect,x.context])} />}
+          >
+            <SourceImage src="figures/data-placement.png" alt="Ground-state success across fixed-point widths and CSR to ELLPACK execution-time ratio across graph sizes." />
+          </FigureCard>
+        </Reveal>
+      );
+
+      const SCHEDULE_PANELS = [
+        {id:'timeline',label:'Timelines',src:'figures/schedules.png',alt:'Serialized, multi-rate, bounded-staleness, and phase-offset scheduling timelines.'},
+        {id:'results',label:'TTS results',src:'figures/tts-results.png',alt:'Time-to-solution speedup versus synchronization interval and boundary mixing cost.'},
+      ];
+
+      const SchedulingFigure = () => {
+        const [panel, setPanel] = useState('all');
+        const shown = panel === 'all' ? SCHEDULE_PANELS : SCHEDULE_PANELS.filter(p => p.id === panel);
+        return (
+          <Reveal>
+            <FigureCard
+              title="Relaxing the barrier changes both rate and quality"
+              controls={<Switcher label="Schedule figure" value={panel} onChange={setPanel}
+                options={[{id:'all',label:'All panels'},...SCHEDULE_PANELS.map(p => ({id:p.id,label:p.label}))]} />}
+              caption="Figures 5 and 6 from the paper. The timeline shows where each schedule places staleness. The measured curves show the resulting time-to-solution optimum."
+              table={<DataTable
+                head={['Technique','Metric','Measured range']}
+                rows={[
+                  ['Multi-rate','TTS₉₉ reduction','1.75–3.16×'],
+                  ['Bounded staleness','TTS₉₉ reduction','1.84–2.17×'],
+                ]} />}
+            >
+              <div className={`grid gap-4 ${shown.length > 1 ? 'sm:grid-cols-2' : ''}`}>
+                {shown.map(p => <SourceImage key={p.id} src={p.src} alt={p.alt} />)}
+              </div>
+            </FigureCard>
+          </Reveal>
+        );
+      };
+
+      const LeverChart = () => {
+        const [term, setTerm] = useState('all');
+        const rows = term === 'all' ? LEVERS : LEVERS.filter(x => x.term.toLowerCase() === term);
+        return (
+          <Reveal>{(on) => (
+            <FigureCard
+              title="Each design move removes a measured cost"
+              controls={<Switcher label="Bottleneck" value={term} onChange={setTerm} options={[
+                {id:'all',label:'All'}, {id:'memory',label:'Memory'}, {id:'synchronization',label:'Synchronization'}, {id:'communication',label:'Communication'}]} />}
+              caption="Ranges reported in the abstract, conclusion, and Table I. Data placement reports speedup, scheduling reports TTS₉₉ reduction, and streaming reports per-sweep speedup."
+              table={<DataTable
+                head={['Technique','Removed term','Metric','Measured range']}
+                rows={LEVERS.map(x => [x.technique,x.term,x.metric,x.min.toFixed(2)+'–'+x.max.toFixed(2)+'×'])}
+                note="The metrics differ by technique, so the bars compare reported multiplicative ranges, not one shared physical quantity." />}
+            >
+              <div className="space-y-4">
+                {rows.map((x,i) => (
+                  <div key={x.technique}>
+                    <div className="flex justify-between gap-3 text-xs mb-1.5">
+                      <span className="font-semibold text-slate-700">{x.technique}</span>
+                      <span className="mono font-bold" style={{color:x.color}}>{x.min.toFixed(2)}–{x.max.toFixed(2)}×</span>
+                    </div>
+                    <div className="h-3 rounded-full bg-slate-100 overflow-hidden">
+                      <div className={`h-full rounded-full ${on ? 'grow' : 'opacity-0'}`} style={{width:(x.max/4.2*100)+'%',background:x.color,animationDelay:(i*120)+'ms'}}></div>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">{x.term} · {x.metric}</p>
+                  </div>
+                ))}
+              </div>
+            </FigureCard>
+          )}</Reveal>
+        );
+      };
+
+      const StreamingFigure = () => (
+        <Reveal>{(on) => (
+          <FigureCard
+            title="Phase-offset streaming across three systems"
+            caption="Maximum streaming speedups reported for an H200 pair, a ZCU106 pair, and a four-board XEM8320 mesh. Source: abstract and Figure 8."
+            table={<DataTable head={['Platform','Configuration','Maximum speedup']}
+              rows={STREAMING.map(x => [x.platform,x.platform.includes('XEM')?'4 devices':'2 devices',x.speedup.toFixed(2)+'×'])} />}
+          >
+            <div className="grid grid-cols-3 gap-2 mb-5">
+              {STREAMING.map((x,i) => (
+                <div key={x.platform} className="text-center p-3 rounded-lg bg-amber-50 border border-amber-100">
+                  <p className="text-2xl font-extrabold" style={{color:'#b45309'}}><CountUp to={x.speedup} decimals={2} suffix="×" run={on} dur={800+i*140} /></p>
+                  <p className="text-[10px] font-semibold text-slate-500 mt-1">{x.platform}</p>
+                </div>
+              ))}
+            </div>
+            <SourceImage src="figures/streaming-speedup.png" alt="Streaming speedup as problem size grows on H200, ZCU106, and XEM8320 systems." />
+          </FigureCard>
+        )}</Reveal>
+      );
+
+      const ASICFigure = () => (
+        <Reveal>{(on) => (
+          <FigureCard
+            title="The model ends in measured silicon"
+            caption="Four fabricated 28 nm chips execute one coherent 27,648-spin Pegasus problem. Source: Sections V-E and VI, Figures 9 and 10."
+            table={<DataTable head={['Property','Measured value']} rows={ASIC.map(x => [x.label,x.value])}
+              note="The four-chip sweep time equals the single-chip sweep time because each added chip brings 54 processing elements and 6,912 spins." />}
+          >
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mb-5">
+              {ASIC.map((x,i) => (
+                <div key={x.label} className={`p-3 rounded-xl bg-white border border-slate-200 shadow-sm ${on ? 'pop' : 'opacity-0'}`} style={{animationDelay:(i*80)+'ms'}}>
+                  <p className="text-lg font-extrabold text-blue-600 leading-tight">{x.value}</p>
+                  <p className="text-[10px] font-semibold text-slate-500 mt-1 uppercase tracking-wide">{x.label}</p>
+                </div>
+              ))}
+            </div>
+            <div className="grid sm:grid-cols-2 gap-4">
+              <SourceImage src="figures/multichip.png" alt="Four XEM8320 boards in a two-dimensional mesh and four ASICs in a one-dimensional mesh." />
+              <div className="grid gap-4 content-start">
+                <SourceImage src="figures/platform-time.png" alt="Per-sweep time versus spin count for measured GPU, FPGA, and ASIC platforms." />
+                <SourceImage src="figures/platform-energy.png" alt="Energy per spin update versus sustained throughput for GPU, FPGA, and ASIC platforms." />
+              </div>
+            </div>
+          </FigureCard>
+        )}</Reveal>
+      );
+
+      const FIGURES = {
+        workflow: WorkflowFigure,
+        sweep_model: SweepModel,
+        model_accuracy: ModelAccuracy,
+        memory: MemoryFigure,
+        scheduling: SchedulingFigure,
+        levers: LeverChart,
+        streaming: StreamingFigure,
+        asic: ASICFigure,
+      };
+
+      /* ==================================================================
+         SECTION TEXT PARSER — sections/*.txt  →  React blocks
+         See sections/README.txt for the markup this accepts.
+         ================================================================== */
+      /* Inline markup. Nests: bold / italic / link contents are parsed again, so
+         **10^8 points** and *see [the paper](url)* both work. `code` is a leaf. */
+      const INLINE_RE = /(`[^`]+`)|(\*\*.+?\*\*)|(\*[^*]+\*)|(\[[^\]]+\]\([^)]+\))|(\d+\^\{[^}]+\}|\d+\^-?[\d.]+)/g;
+
+      const inline = (s, depth = 0) => {
+        if (s == null) return null;
+        const out = [];
+        const re = new RegExp(INLINE_RE.source, 'g');
+        let last = 0, m, k = 0;
+        const plain = (t) => t.replace(/--/g, '—');
+        const recurse = (t) => (depth < 4 ? inline(t, depth + 1) : plain(t));
+        while ((m = re.exec(s)) !== null) {
+          if (m.index > last) out.push(plain(s.slice(last, m.index)));
+          const tok = m[0];
+          if (tok.startsWith('`')) {
+            out.push(<code key={k++} className="text-[0.92em] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">{tok.slice(1, -1)}</code>);
+          } else if (tok.startsWith('**')) {
+            out.push(<strong key={k++} className="font-semibold text-slate-900">{recurse(tok.slice(2, -2))}</strong>);
+          } else if (tok.startsWith('[')) {
+            const mm = /^\[([^\]]+)\]\(([^)]+)\)$/.exec(tok);
+            const ext = /^https?:/.test(mm[2]);
+            out.push(<a key={k++} href={mm[2]} {...(ext ? { target:'_blank', rel:'noopener noreferrer' } : {})}
+                        className="text-blue-600 font-medium hover:text-blue-800 underline decoration-blue-200 hover:decoration-blue-500 underline-offset-2 transition-colors">{recurse(mm[1])}</a>);
+          } else if (tok.startsWith('*')) {
+            out.push(<em key={k++}>{recurse(tok.slice(1, -1))}</em>);
+          } else {
+            const parts = tok.split('^');
+            out.push(<span key={k++}>{parts[0]}<sup className="text-[0.7em]">{parts[1].replace(/[{}]/g, '')}</sup></span>);
+          }
+          last = m.index + tok.length;
+        }
+        if (last < s.length) out.push(plain(s.slice(last)));
+        return out;
+      };
+
+      const parseSection = (raw) => {
+        const lines = raw.replace(/\r/g, '').split('\n');
+        const blocks = [];
+        let i = 0;
+        const flushList = (ordered) => {
+          const items = [];
+          const pat = ordered ? /^\s*\d+\.\s+(.*)$/ : /^\s*[-*]\s+(.*)$/;
+          while (i < lines.length && pat.test(lines[i])) { items.push(pat.exec(lines[i])[1]); i++; }
+          blocks.push({ t: ordered ? 'ol' : 'ul', items });
+        };
+        while (i < lines.length) {
+          const ln = lines[i];
+          const s = ln.trim();
+          if (!s) { i++; continue; }
+          if (s.startsWith('#') && !s.startsWith('##')) { i++; continue; }          // comment
+          if (/^##\s+/.test(s) && !/^###/.test(s)) { blocks.push({ t:'h2', v:s.replace(/^##\s+/, '') }); i++; continue; }
+          if (/^###\s+/.test(s)) { blocks.push({ t:'h3', v:s.replace(/^###\s+/, '') }); i++; continue; }
+          if (/^---+$/.test(s)) { blocks.push({ t:'hr' }); i++; continue; }
+          if (/^\[\[FIG:/.test(s)) { blocks.push({ t:'fig', v:s.replace(/^\[\[FIG:\s*/, '').replace(/\]\]$/, '').trim() }); i++; continue; }
+          if (/^\[\[TLDR(:\w+)?\]\]/i.test(s)) {
+            const mode = (/^\[\[TLDR:(\w+)\]\]/i.exec(s) || [])[1];
+            i++; const buf = [];
+            while (i < lines.length && lines[i].trim() && !/^\[\[/.test(lines[i].trim())) { buf.push(lines[i].trim()); i++; }
+            blocks.push({ t:'tldr', v:buf.join(' '), startOpen: String(mode).toLowerCase() !== 'closed' }); continue;
+          }
+          if (/^\[\[STATS\]\]/i.test(s)) {
+            i++; const items = [];
+            while (i < lines.length && lines[i].trim() && !/^\[\[/.test(lines[i].trim())) {
+              const p = lines[i].split('|').map(x => x.trim());
+              if (p.length >= 2) items.push({ v:p[0], label:p[1], note:p[2] || '' });
+              i++;
+            }
+            blocks.push({ t:'stats', items }); continue;
+          }
+          if (/^\[\[REF\]\]/i.test(s)) {
+            const refs = [];
+            while (i < lines.length && /^\[\[REF\]\]/i.test(lines[i].trim())) {
+              const p = lines[i].trim().replace(/^\[\[REF\]\]\s*/i, '').split('|').map(x => x.trim());
+              refs.push({ authors:p[0] || '', title:p[1] || '', venue:p[2] || '', url:p[3] || '' });
+              i++;
+            }
+            blocks.push({ t:'refs', refs }); continue;
+          }
+          if (/^\s*[-*]\s+/.test(ln)) { flushList(false); continue; }
+          if (/^\s*\d+\.\s+/.test(ln)) { flushList(true); continue; }
+          if (s.startsWith('>')) {
+            const buf = [];
+            while (i < lines.length && lines[i].trim().startsWith('>')) { buf.push(lines[i].trim().replace(/^>\s?/, '')); i++; }
+            blocks.push({ t:'quote', v:buf.join(' ') }); continue;
+          }
+          const buf = [];
+          while (i < lines.length && lines[i].trim() && !/^(##|>|---+$|\[\[|\s*[-*]\s|\s*\d+\.\s)/.test(lines[i].trim())) { buf.push(lines[i].trim()); i++; }
+          blocks.push({ t:'p', v:buf.join(' ') });
+        }
+        return blocks;
+      };
+
+      /* TL;DR — click the header to collapse or expand. Default state comes from
+         the section file: [[TLDR]] opens, [[TLDR:closed]] starts collapsed. */
+      const TLDR = ({ text, startOpen = true }) => {
+        const [open, setOpen] = useState(startOpen);
+        const body = useRef(null);
+        const [h, setH] = useState(startOpen ? 'none' : '0px');
+        useEffect(() => {
+          const el = body.current;
+          if (!el) return;
+          const measure = () => setH(open ? el.scrollHeight + 'px' : '0px');
+          measure();
+          if (!open) return;
+          const ro = ('ResizeObserver' in window) ? new ResizeObserver(measure) : null;
+          if (ro) ro.observe(el);
+          return () => ro && ro.disconnect();
+        }, [open, text]);
+        return (
+          <section className="bg-slate-50 rounded-lg mb-10 border border-slate-200 overflow-hidden">
+            <h3>
+              <button type="button" onClick={() => setOpen(v => !v)} aria-expanded={open} aria-controls="tldr-body"
+                className="w-full flex items-center gap-2 px-6 py-4 text-left font-bold text-slate-900 text-sm uppercase tracking-wide hover:bg-slate-100 transition-colors">
+                <Icon name="Terminal" className="w-4 h-4 shrink-0" />
+                <span>TL;DR</span>
+                <Icon name="ChevronDown"
+                  className={`w-4 h-4 ml-auto shrink-0 text-slate-400 transition-transform duration-300 ${open ? 'rotate-180' : ''}`} />
+              </button>
+            </h3>
+            <div id="tldr-body" style={{ maxHeight: h, transition: STATIC ? 'none' : 'max-height .38s cubic-bezier(.22,.61,.36,1)' }}
+                 className="overflow-hidden">
+              <div ref={body} className="px-6 pb-5 -mt-1">
+                <p className="text-slate-600 text-base leading-relaxed">{inline(text)}</p>
+              </div>
+            </div>
+          </section>
+        );
+      };
+
+      const Block = ({ b }) => {
+        switch (b.t) {
+          case 'h2':  return <SectionHeader title={inline(b.v)} />;
+          case 'h3':  return <h3 className="text-lg font-bold text-slate-800 mt-8 mb-3 tracking-tight">{inline(b.v)}</h3>;
+          case 'p':   return <p className="text-lg text-slate-700 mb-6 leading-relaxed">{inline(b.v)}</p>;
+          case 'hr':  return <hr className="my-10 border-slate-200" />;
+          case 'ul':  return <ul className="text-lg list-disc pl-6 mb-6 space-y-2 text-slate-700 leading-relaxed">{b.items.map((x, j) => <li key={j}>{inline(x)}</li>)}</ul>;
+          case 'ol':  return <ol className="text-lg list-decimal pl-6 mb-6 space-y-2 text-slate-700 leading-relaxed">{b.items.map((x, j) => <li key={j}>{inline(x)}</li>)}</ol>;
+          case 'quote': return (
+            <div className="my-8 p-6 bg-blue-50 border-l-4 border-blue-600 rounded-r-lg">
+              <p className="text-blue-900 text-lg leading-relaxed">{inline(b.v)}</p>
+            </div>
+          );
+          case 'tldr': return <TLDR text={b.v} startOpen={b.startOpen !== false} />;
+          case 'stats': return (
+            <Reveal>{(on) => (
+              <div className="grid sm:grid-cols-2 gap-3 my-8">
+                {b.items.map((s, j) => {
+                  const m = /^([\d.]+)(.*)$/.exec(s.v);
+                  return (
+                    <div key={j} className="p-4 rounded-xl bg-white border border-slate-200 shadow-sm">
+                      <p className="text-2xl font-extrabold text-blue-600 leading-none">
+                        {m ? <><CountUp to={parseFloat(m[1])} decimals={(m[1].split('.')[1] || '').length} run={on} dur={900 + j*120} />{m[2]}</> : s.v}
+                      </p>
+                      <p className="text-sm font-semibold text-slate-800 mt-2 leading-snug">{inline(s.label)}</p>
+                      {s.note && <p className="text-xs text-slate-500 mt-1 leading-snug">{inline(s.note)}</p>}
+                    </div>
+                  );
+                })}
+              </div>
+            )}</Reveal>
+          );
+          case 'refs': return (
+            <ol className="mt-2 mb-6 space-y-3">
+              {b.refs.map((r, j) => {
+                const n = j + 1;
+                return (
+                  <li key={j} id={'ref' + n} className="text-sm text-slate-600 leading-relaxed">
+                    <span className="text-slate-400 mono mr-1.5">[{n}]</span>
+                    {r.url
+                      ? <a href={r.url} target="_blank" rel="noopener noreferrer"
+                           className="text-blue-600 font-medium hover:text-blue-800 underline decoration-blue-200 hover:decoration-blue-500 underline-offset-2">{r.title}</a>
+                      : <span className="font-medium text-slate-800">{r.title}</span>}
+                    {r.authors && <span> — {r.authors}</span>}
+                    {r.venue && r.venue !== '—' && <span className="text-slate-400">, {r.venue}</span>}
+                  </li>
+                );
+              })}
+            </ol>
+          );
+          case 'fig': {
+            const F = FIGURES[b.v];
+            if (!F) return (
+              <div className="my-8 p-4 rounded-lg bg-amber-50 border border-amber-200 text-sm text-amber-800">
+                Unknown figure <code className="mono font-bold">{b.v}</code>. Valid names: {Object.keys(FIGURES).join(', ')}.
+              </div>
+            );
+            return <F />;
+          }
+          default: return null;
+        }
+      };
+
+      /* ==================================================================
+         APP — loads sections/manifest.txt, then every section file in it
+         ================================================================== */
+      const SECTIONS_DIR = 'sections/';
+
+      const fetchText = async (name) => {
+        const r = await fetch(SECTIONS_DIR + name + '?v=' + Date.now(), { cache: 'no-store' });
+        if (!r.ok) throw new Error(name + ' → HTTP ' + r.status);
+        return r.text();
+      };
+
+      const parseMeta = (raw) => {
+        const meta = { tag: [], link: [], title: [] };
+        raw.replace(/\r/g, '').split('\n').forEach(ln => {
+          const s = ln.trim();
+          if (!s || s.startsWith('#')) return;
+          const idx = s.indexOf(':');
+          if (idx < 0) return;
+          const k = s.slice(0, idx).trim(), v = s.slice(idx + 1).trim();
+          if (k === 'tag' || k === 'link' || k === 'title') meta[k].push(v);
+          else meta[k] = v;
+        });
+        return meta;
+      };
+
+      const TAG_STYLES = [
+        'bg-blue-100 text-blue-700',
+        'bg-indigo-100 text-indigo-700',
+        'bg-slate-200 text-slate-700',
+      ];
+
+      const App = () => {
+        const [state, setState] = useState({ status:'loading' });
+
+        useEffect(() => {
+          (async () => {
+            try {
+              const manifest = (await fetchText('manifest.txt'))
+                .split('\n').map(s => s.trim())
+                .filter(s => s && !s.startsWith('#'));
+              const meta = parseMeta(await fetchText('00-meta.txt'));
+              const texts = await Promise.all(manifest.map(fetchText));
+              setState({ status:'ready', meta, blocks: texts.flatMap(parseSection) });
+            } catch (err) {
+              setState({ status:'error', message: String(err && err.message || err) });
+            }
+          })();
+        }, []);
+
+        if (state.status === 'loading') {
+          return (
+            <div className="min-h-screen flex items-center justify-center">
+              <div className="text-slate-400 flex flex-col items-center gap-4">
+                <div className="loader"></div>
+                <p>Loading Interactive Article…</p>
+              </div>
+            </div>
+          );
+        }
+
+        if (state.status === 'error') {
+          return (
+            <div className="min-h-screen flex items-center justify-center p-6">
+              <div className="max-w-lg bg-white border border-amber-200 rounded-xl shadow-sm p-8">
+                <h1 className="text-xl font-bold text-slate-900 mb-3">Could not load the article text</h1>
+                <p className="text-slate-600 text-sm mb-4">
+                  This page reads its prose from the <code className="mono px-1 bg-slate-100 rounded">sections/</code> folder at
+                  runtime, which the browser only permits over HTTP. Serve the folder and reload:
+                </p>
+                <pre className="bg-slate-900 text-slate-200 mono text-xs rounded-lg p-4 overflow-x-auto mb-4">python3 -m http.server 8000{'\n'}# then open http://127.0.0.1:8000/</pre>
+                <p className="text-xs text-slate-400">Details: {state.message}</p>
+              </div>
+            </div>
+          );
+        }
+
+        const { meta, blocks } = state;
+        return (
+          <div className="min-h-screen bg-slate-50 font-sans text-slate-800 leading-relaxed">
+            <div className="max-w-3xl mx-auto bg-white min-h-screen shadow-lg border-x border-slate-100">
+
+              {/* Blog Header */}
+              <header className="pt-16 pb-8 px-8 md:px-12">
+                <div className="flex flex-wrap gap-3 mb-6">
+                  {meta.tag.map((t, i) => (
+                    <span key={t} className={`px-3 py-1 text-xs font-bold uppercase tracking-wide rounded-full ${TAG_STYLES[i % TAG_STYLES.length]}`}>{t}</span>
+                  ))}
+                </div>
+
+                <h1 className="text-4xl md:text-5xl font-extrabold mb-6 text-slate-900 tracking-tight leading-tight">
+                  {meta.title.map((t, i) => (
+                    <React.Fragment key={i}>
+                      {i > 0 && <br/>}
+                      <span>{t}</span>
+                    </React.Fragment>
+                  ))}
+                  {meta.title_accent && <><br/><span className="text-blue-600">{meta.title_accent}</span></>}
+                </h1>
+
+                {meta.subtitle && (
+                  <h2 className="text-xl md:text-2xl font-semibold mb-6 text-slate-700 tracking-tight leading-snug">
+                    {inline(meta.subtitle)}
+                  </h2>
+                )}
+
+                <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-sm text-slate-500 border-b border-slate-100 pb-2 mb-8">
+                  {meta.byline && (
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-slate-900">{meta.byline}</span>
+                    </div>
+                  )}
+                  {meta.readtime && (
+                    <div className="flex items-center gap-2">
+                      <Icon name="Clock" className="w-4 h-4" />
+                      <span>{meta.readtime}</span>
+                    </div>
+                  )}
+                  {meta.date && (
+                    <div className="flex items-center gap-2">
+                      <Icon name="Activity" className="w-4 h-4" />
+                      <span>{meta.date}</span>
+                    </div>
+                  )}
+                </div>
+
+                {meta.link.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-5 text-sm text-slate-500">
+                    {meta.link.map((l, i) => {
+                      const p = l.split('|').map(x => x.trim());
+                      const ext = /^https?:/.test(p[1] || '');
+                      return (
+                        <a key={i} href={p[1]} {...(ext ? { target:'_blank', rel:'noopener noreferrer' } : {})}
+                           className="inline-flex items-center gap-2 hover:text-blue-600 transition-colors font-medium">
+                          <Icon name={p[2] || 'FileText'} className="w-4 h-4" />
+                          <span>{p[0]}</span>
+                        </a>
+                      );
+                    })}
+                  </div>
+                )}
+              </header>
+
+              <main className="px-8 md:px-12 pb-20">
+                {blocks.map((b, i) => <Block key={i} b={b} />)}
+              </main>
+
+              <footer className="px-8 md:px-12 py-8 border-t border-slate-100 flex flex-wrap justify-between gap-4 text-xs text-slate-400">
+                <span>{meta.byline || 'Paper authors'}</span>
+                <span>Figures and measurements are from the attached arXiv preprint.</span>
+              </footer>
+            </div>
+          </div>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<App />);
+
+    } catch (err) {
+      document.body.innerHTML = `
+        <div style="color: #ef4444; padding: 20px; font-family: sans-serif; text-align: center;">
+          <h2 style="font-weight: bold; margin-bottom: 10px;">Rendering Error</h2>
+          <p>Something went wrong while loading the preview.</p>
+          <pre style="background: #fee2e2; padding: 10px; border-radius: 4px; margin-top: 10px; overflow: auto; text-align: left;">${err.message}</pre>
+        </div>
+      `;
+      console.error(err);
+    }
+  </script>
+</body>
+</html>

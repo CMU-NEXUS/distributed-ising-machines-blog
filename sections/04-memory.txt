@@ -1,0 +1,11 @@
+## First remove the memory term
+
+Each spin update streams couplings, indices, and bias data with little reuse. Neighbor states may remain in cache, but the coupling stream can evict them. The resulting arithmetic intensity stays low even when graph degree rises because operations and bytes grow together.
+
+The strongest predictor is therefore **on-chip residency**. If the coupling working set fits in the fast tier, a streaming datapath can feed every processing element from private local memory. Once it spills, memory service dominates the sweep.
+
+Storage choices decide where that cliff occurs. Coupling precision changes footprint but cannot be narrowed past the range required by the accumulated local field. Sparse format also matters: CSR has cheap addressing, while ELLPACK gives coalesced access and a smaller footprint on regular graphs. The winning choice changes as the kernel moves from latency-bound to bandwidth-bound.
+
+[[FIG:memory]]
+
+This is why peak arithmetic throughput is a poor guide. A GPU may have ample floating-point capacity and still spend most of a sweep moving a zero-reuse stream. The FPGA implementation takes the opposite approach. It provisions local memory beside each processing element and turns the same update into a fixed-rate pipeline.
